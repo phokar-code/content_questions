@@ -27,6 +27,23 @@ else:
     uploaded_file = st.sidebar.file_uploader("Upload GSC Export (CSV)", type=['csv'])
 
     if uploaded_file is not None:
+        st.sidebar.subheader("Advanced Filters")
+        
+        # Define default keywords based on user sample
+        default_brand = "pep, paxi, foneyam, capfin, plus more"
+        default_competitors = "ackermans, shoprite, pick n pay, mr price"
+        
+        brand_input = st.sidebar.text_area("Brand Keywords (comma-separated)", value=default_brand)
+        brand_kw = [k.strip().lower() for k in brand_input.split(',')] if brand_input else []
+        brand_filter = st.sidebar.radio("Brand Filter", ["Show All", "Brand Only", "Non-Brand Only"])
+
+        comp_input = st.sidebar.text_area("Competitor Keywords (comma-separated)", value=default_competitors)
+        comp_kw = [k.strip().lower() for k in comp_input.split(',')] if comp_input else []
+        comp_filter = st.sidebar.radio("Competitor Filter", ["Show All", "Competitors Only", "Exclude Competitors"])
+
+        custom_input = st.sidebar.text_input("Custom 'Must Include' Keywords", help="e.g. samsung, dstv, router")
+        custom_kw = [k.strip().lower() for k in custom_input.split(',')] if custom_input else []
+
         try:
             # Read CSV
             df = pd.read_csv(uploaded_file)
@@ -47,13 +64,33 @@ else:
             if query_col:
                 st.subheader("Extracted Questions")
                 
-                # Filter logic: convert queries to lowercase and check if they contain any question word as a distinct word
-                # Using regex word boundary \b to ensure we match whole words (e.g. 'is', not 'this')
+                # 1. Base Question Filter
                 pattern = r'\b(?:' + '|'.join(QUESTION_WORDS) + r')\b'
+                q_mask = df[query_col].astype(str).str.lower().str.contains(pattern, regex=True, na=False)
                 
-                # Create a boolean mask
-                mask = df[query_col].astype(str).str.lower().str.contains(pattern, regex=True, na=False)
-                questions_df = df[mask].copy()
+                # 2. Brand Filter
+                brand_pattern = '|'.join([f"\\b{k}\\b" for k in brand_kw]) if brand_kw else r'(?!x)x'
+                has_brand = df[query_col].astype(str).str.lower().str.contains(brand_pattern, regex=True, na=False)
+                if brand_filter == "Brand Only":
+                    q_mask = q_mask & has_brand
+                elif brand_filter == "Non-Brand Only":
+                    q_mask = q_mask & ~has_brand
+
+                # 3. Competitor Filter
+                comp_pattern = '|'.join([f"\\b{k}\\b" for k in comp_kw]) if comp_kw else r'(?!x)x'
+                has_comp = df[query_col].astype(str).str.lower().str.contains(comp_pattern, regex=True, na=False)
+                if comp_filter == "Competitors Only":
+                    q_mask = q_mask & has_comp
+                elif comp_filter == "Exclude Competitors":
+                    q_mask = q_mask & ~has_comp
+
+                # 4. Custom Keywords Filter
+                if custom_kw:
+                    custom_pattern = '|'.join([f"\\b{k}\\b" for k in custom_kw])
+                    has_custom = df[query_col].astype(str).str.lower().str.contains(custom_pattern, regex=True, na=False)
+                    q_mask = q_mask & has_custom
+
+                questions_df = df[q_mask].copy()
                 
                 # Display metrics
                 col1, col2 = st.columns(2)
@@ -79,3 +116,4 @@ else:
             st.error(f"Error processing file: {e}")
     else:
         st.info("Please upload a CSV file from Google Search Console to begin.")
+
